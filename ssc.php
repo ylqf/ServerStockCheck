@@ -1,7 +1,7 @@
 <?php
     /****************************************
-     *  VERSION : v.20170312
-     *  DATE    : 2016-10-06
+     *  VERSION : 0.1.2
+     *  DATE    : 2018-08-20
      *
      *  Copyright (C) 201x (reruin#gmail.com) 
      *
@@ -13,7 +13,53 @@
      *
      *  You should have received a copy of the GNU General Public License along with Foobar. If not, see <http://www.gnu.org/licenses/>.
      *
+     * changelog
+     * 2018-08-20
+     * + 添加消息通知
+     * * 修改ks的监测逻辑
+     * * 新的样式
+     *
+     * 2017-03-12
+     * + 添加对wsi的支持
+     *
+     *
      *****************************************/
+
+    // $options = array(
+    //     'http' => array(
+    //     'method' => 'GET',
+    //     'header' => 'Content-type:application/x-www-form-urlencoded',
+    //     'content' => $postdata,
+    //     'timeout' => 15 * 60
+    //     )
+    // );
+
+    function request($url){
+        $context = array(   
+            'http' => array (   
+                'header'=> 'User-Agent: ' . $_SERVER['HTTP_USER_AGENT']   
+            )   
+        );
+        $xcontext = stream_context_create($context);
+        $resp = file_get_contents($url);
+
+        return $resp;
+    }
+
+    function _request($url, $data = null){
+        $curl = curl_init();
+        curl_setopt($curl, CURLOPT_URL, $url);
+        curl_setopt($curl, CURLOPT_SSL_VERIFYPEER, false);
+        curl_setopt($curl, CURLOPT_SSL_VERIFYHOST, false);
+        if (!empty($data)) {
+            curl_setopt($curl, CURLOPT_POST, 1);
+            curl_setopt($curl, CURLOPT_POSTFIELDS, $data);
+        }
+        curl_setopt($curl, CURLOPT_RETURNTRANSFER, 1);
+        $info = curl_exec($curl);
+        curl_close($curl);
+        return $info;
+    }
 
     function checkOnline($id){
         $resp = file_get_contents("https://console.online.net/en/order/server");
@@ -31,8 +77,9 @@
         exit();
     }
 
-    function checkKimsufi($id){
+    function _checkKimsufi($id){
         $resp = file_get_contents( "https://www.kimsufi.com/en/order/kimsufi.cgi?hard=" . $id);
+
         $status = array(
             'status'=> strpos($resp , 'icon-availability') !== false
         );
@@ -41,10 +88,32 @@
         exit();
     }
 
+    function checkKimsufi($id){
+        $resp = request( "https://www.ovh.com/engine/api/dedicated/server/availabilities?country=ie&hardware=".$id);
+        
+        $status = array(
+            'status'=> preg_match('/availability":"(?!unavailable)/' , $resp) === 1
+        );
+        header('Content-type: application/json');
+        echo( json_encode($status));
+        exit();
+    }
+
+
     function checkWSI($id){
         $resp = file_get_contents( "https://www.wholesaleinternet.net/out-of-stock/?id=" . $id);
         $status = array(
             'status'=> strpos($resp , 'out of stock') === false
+        );
+        header('Content-type: application/json');
+        echo( json_encode($status));
+        exit();
+    }
+
+    function checkCommon($url , $f){
+        $resp = file_get_contents( $url );
+        $status = array(
+            'status'=> strpos($resp , $f) === false && strpos($resp , 'Cloudflare') === false
         );
         header('Content-type: application/json');
         echo( json_encode($status));
@@ -64,6 +133,17 @@
         else if($type == 'ks'){
             checkKimsufi($id);
         }
+        else if($type == 'common'){
+            $url = urldecode($_GET['u']);
+            $f = $_GET['f'];
+            checkCommon($url , $f);
+        }
+    }
+
+    if($_GET['a']=='proxy' && !empty($_GET['url'])){
+        $url = urldecode($_GET['url']);
+        echo( request($url) );
+        exit();
     }
 ?>
 
@@ -72,6 +152,12 @@
 <head>
     <meta http-equiv="content-type" content="text/html;charset=utf-8">
     <title>SSC 库存状态监控</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, minimal-ui">
+    <meta name="screen-orientation" content="portrait"/>
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="format-detection" content="telephone=no">
+    <meta name="full-screen" content="yes">
+    <meta name="x5-fullscreen" content="true">
     <style type="text/css">
     *{box-sizing: border-box;}
     html{
@@ -155,11 +241,14 @@
     }
 
     header {
-        padding: 15px 20px;
-        color:#6c6c6c;
+        padding: 35px 20px 15px 20px;
+        color:#0d1a26;
+        display: flex;
+        justify-content: space-between;
+        align-items:center;
     }
     header h2{
-        font-size: 20px;
+        font-size: 26px;
         font-weight: normal;
         display: inline-block;
     }
@@ -175,15 +264,13 @@
 
     header span{color:#666; margin-right:5px;}
 
-    header .menu{
-        float:right;
-    }
+    
     footer{
         position:fixed;
         width:100%;
         bottom:0;
         left:0;
-        margin:10px 0;
+        padding: 20px;
     }
 
     footer p{
@@ -200,37 +287,61 @@
 
     section{
         overflow:auto;
-        margin:20px;
-        box-shadow: 0 1px 1px rgba(0,0,0,0.1);
+        margin:20px 20px 55px 20px;
+        position: relative;
+        z-index: 2;
+        /*box-shadow: 0 1px 1px rgba(0,0,0,0.1);*/
     }
 
-    .item {
-        position:relative;
-        height: 54px;
-        line-height: 54px;
-        font-size: 12px;
-        margin-bottom: 0px;
-        border-bottom: #ececec 1px solid;
-        cursor: default;
-        background-color: #fff;
-        padding:0 15px;
-        font-size: 12px;
-        color:#6c6c6c;
-        width:100%;
-        display: table;
+    table{
+        width:100%;background: #fff;
     }
-    .item.head{
-        background-color: #f9f9f9;
-        height:48px;
-        line-height: 48px;
-        font-size: 12px;
-        color:#000;
+    thead th{
+        background-color: #fafafa;
+        color: rgba(0,0,0,.85);
         font-weight: 500;
+        text-align: left;
     }
 
+    table td:first-child,th:first-child{
+        padding-left:25px;
+    }
+    table td:last-child,th:last-child{
+        padding-right:25px;
+    }
+    tbody td{
+        color:rgba(0,0,0,.65);
+    }
+    table td,th{
+        border-bottom: 1px solid #e8e8e8;
+        padding:16px;font-size:13px;
+    }
+    
+    @media screen and (max-width:768px) {
+      table th:nth-child(3),
+      table td:nth-child(3),
+      table th:nth-child(6),
+      table td:nth-child(6)
+      {
+        display: none;
+      }
+    }
+
+    @media screen and (max-width:480px) {
+      table th:nth-child(3),
+      table td:nth-child(3),
+      table th:nth-child(4),
+      table td:nth-child(4),
+      table th:nth-child(5),
+      table td:nth-child(5),
+      table th:nth-child(6),
+      table td:nth-child(6)
+      {
+        display: none;
+      }
+    }
+    
     .item span {
-        width: 75px;
-        display: table-cell;
         vertical-align: middle;
     }
     
@@ -239,31 +350,29 @@
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+        padding-right: 10px;
     }
-    .item span.w1 {
+
+
+    .w1 {
         width: 60px;
     }
 
-    .item span.w2{
-        width: 150px; 
-        color:#333;
+    .w2{
+        width: 180px; 
+        color: #333;
     }
-    .item span.w3{
-        width: 130px; 
-        
-    }
-
-    .item span .uptime{ padding-left:8px; font-size: 9px; }
-    .item span .status{ width:42px; }
-    .item span.op{
-        width: initial;
-        text-align:right;
-    }
-    .item span.op a{ padding: 5px;}
-    .item.head{
-        border-bottom: #9ed8ec 2px solid;
+    .w3{
+        min-width: 100px; 
     }
 
+    .uptime{ padding-left:8px; font-size: 9px; }
+    .status{ width:42px; }
+    .op{
+        text-align:center;
+    }
+    .op a{ padding: 5px;cursor:pointer;}
+    
     .availabe {
         background: #d1f1c2;
     }
@@ -282,6 +391,9 @@
     <header>
         <h2>库存状态监控</h2>
         <div class='menu'>
+            <div>
+                <a id="j_notify">设置消息</a>
+            </div>
             <div class="models"></div>
             <div class="tick">
                 <span>刷新时间</span>
@@ -296,25 +408,33 @@
         </div>
     </header>
 
-    <section id = 'all'>
-        <div class="head item">
-            <span>类型</span>
-            <span class="w2">状态</span>
-            <span class="w3">CPU</span>
-            <span>内存</span>
-            <span>磁盘</span>
-            <span>网络</span>
-            <span class="w3">价格</span>
-            <span class="op"></span>
-        </div>
+    <section>
+        <table cellspacing="0" cellpadding="0" border="0">
+            <thead>
+                <tr>
+                    <th class="w3">类型</th>
+                    <th class="w3">状态</th>
+                    <th class="w2">CPU</th>
+                    <th>内存</th>
+                    <th>磁盘</th>
+                    <th>网络</th>
+                    <th class="w3">价格</th>
+                    <th class="op">操作</th>
+                </tr>
+            </thead>
+            <tbody id="all">
+                
+            </tbody>
+        </table>
     </section>
+    
 
     <footer>
-        <p><a class="github" href="https://github.com/reruin"><svg aria-hidden="true" height="16" version="1.1" viewBox="0 0 16 16" width="16"><path fill-rule="evenodd" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"></path></svg></a>reruin#gmail.com</p>
+        <p><a class="github" target="_blank" href="https://github.com/reruin/ServerStockCheck"><svg aria-hidden="true" height="16" version="1.1" viewBox="0 0 16 16" width="16"><path fill-rule="evenodd" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"></path></svg></a>reruin#gmail.com</p>
     </footer>
     <script type="text/javascript" src='//cdn.bootcss.com/jquery/3.2.1/jquery.min.js'></script>
-    <script type="text/javascript" src='https://rawgit.com/reruin/ServerStockCheck/master/lib/ssc.js'></script>
-    <!-- <script type="text/javascript" src='lib/ssc.js'></script> -->
+    <!-- <script type="text/javascript" src='https://rawgit.com/reruin/ServerStockCheck/master/lib/ssc.js'></script> -->
+    <script type="text/javascript" src='lib/ssc.js'></script>
     <script type="text/javascript">  
         $(function() {
 
@@ -339,14 +459,14 @@
             };
 
             function create_layout(app) {
-                var tpl = "<option value ='{type}_{id}'>{title}</option>",
+                var tpl = "<option value ='{type}--{id}'>{title}</option>",
                     s = "";
                 var list = ssc.models;
                 for (var i = 0; i < list.length; i++) {
                     s += template(tpl, list[i]);
                 }
 
-                s = "<span>添加</span><select>" + s + "</select>";
+                s = "<select placeholder='请选择服务器'><option value=''>请选择服务器</option>" + s + "</select>";
                 $("header .models").append(s)
                 .find("select").change(function() {
                     app.add($(this).val());
@@ -361,7 +481,7 @@ $("<span>添加</span><select>" + s + "</select>")
                 */
 
                 $('header .help a').click(function() {
-                    alert('本程序只做学习探讨之用。\r\n reruin@gmail.com\r\n https://github.com/reruin')
+                    alert('本程序只做学习探讨之用。\r\n reruin#gmail.com\r\n https://github.com/reruin')
                 });
 
                 $("header .tick select").change(function() {
@@ -377,6 +497,19 @@ $("<span>添加</span><select>" + s + "</select>")
                     if(window.confirm('确定删除？')){
                         app.remove(id);
                     }
+                }).on('click', 'a.j_order' , function(){
+                    var id = $(this).attr('data-id');
+                    var type = $(this).attr('data-type');
+                    var url = ssc.getOrderUrl(id , type);
+                    if(url) window.open(url);
+                })
+
+                $('#j_notify').on('click' , function(){
+                    var default_url = store.notify_url || ''
+                    var notify_url = window.prompt('消息地址，仅限GET方式。\n1、使用ftqq通知，不支持占位符，\n格式 https://sc.ftqq.com/xxxx.send\n2、自定义的消息地址，可用使用以下占位符 \n{title} : 名称\n{link}: 下单地址（如果有）\n{type}：类型',default_url)
+                    if( notify_url !== null ){
+                        store.notify_url = notify_url
+                    }
                 })
 
             }
@@ -387,6 +520,24 @@ $("<span>添加</span><select>" + s + "</select>")
 
             function read(){
                 return store.task ? JSON.parse( store.task ) : null;
+            }
+
+            function emit(d){
+                if(store.notify_url){
+                    var url = store.notify_url
+                    if(url.indexOf('https://sc.ftqq.com/')>=0){
+                        url = url + '?text={type}有货_{time}&desp=[下单]({link})'
+                    }
+                    
+                    var obj = {title:d.data.title , id:d.data.id , type:d.data.type , link:ssc.getOrderUrl(d.id , d.type) , time:Date.now()}
+                    $.ajax({
+                        url:'?a=proxy&url='+encodeURIComponent(template(url,obj)) ,
+                        method:'get',
+                        success:function(){
+
+                        }
+                    })
+                }
             }
 
             function notify(){
@@ -400,14 +551,14 @@ $("<span>添加</span><select>" + s + "</select>")
             }
 
             function start() {
-                var tpl = '<div class="item" id="item_{type}_{id}">' +
-                    '<span>{data.title}</span>' +
-                    '<span class="w2">' +
+                var tpl = '<tr id="item_{type}--{id}">' +
+                    '<td>{data.title}</td>' +
+                    '<td>' +
                     '<span class="status">{status_str}</span>' +
                     '<span class="uptime"></span>' +
-                    '</span>' +
-                    '<span class="w3">{data.cpu}</span><span>{data.ram}</span><span>{data.disk}</span><span>{data.network}</span><span class="w3">{data.price}</span><span class="op"><label><input type="checkbox" checked />音乐提醒</label><a href="#" class="remove" data-id="{type}_{id}">移除</a></span>' +
-                    '</div>';
+                    '</td>' +
+                    '<td>{data.cpu}</td><td>{data.ram}</td><td>{data.disk}</td><td>{data.network}</td><td>{data.price}</td><td class="op"><label><input type="checkbox" checked />音乐提醒</label><a class="remove" data-id="{type}--{id}">移除</a><a href="javascript:void(0)" class="j_order" data-id="{id}" data-type="{type}">下单</a></td>' +
+                    '</tr>';
 
                     //<a href="https://www.kimsufi.com/en/order/kimsufi.cgi?hard={id}" target="_blank">下单</a>
                 var app = ssc();
@@ -419,14 +570,14 @@ $("<span>添加</span><select>" + s + "</select>")
                         save( app.getModels() );
                     })
                     .on('remove' , function(data){
-                        var id = data.type+"_"+data.id;
+                        var id = data.type+"--"+data.id;
                         $('#item_'+id).remove();
                         save( app.getModels() );
                         notify();
                     })
                     .on('update', function(data) {
                         for (var i in data) {
-                            var el = $('#item_' +data[i].type+'_'+ data[i].id);
+                            var el = $('#item_' +data[i].type+'--'+ data[i].id);
                             if (el) {
                                 el.find('.uptime').html(data[i].uptime + '秒前');
                                 el.find('.status').html(data[i].status_str);
@@ -435,8 +586,11 @@ $("<span>添加</span><select>" + s + "</select>")
                         }
                         notify();
                     })
+                    .on('hit', function(data) {
+                        emit(data)
+                    })
 
-                    .add( read() || ['ks_162sk32', 'ks_162sk42']);
+                    .add( read() || ['ks--1801sk12', 'ks--1804sk12']);
 
                 create_layout(app);
             }
